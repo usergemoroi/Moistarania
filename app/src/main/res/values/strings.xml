@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Standoff 2 Injector</string>
+    <string name="title">Standoff 2 External ESP</string>
+    <string name="status_title">Status</string>
+    <string name="status_idle">Ready to inject</string>
+    <string name="status_checking">Checking root access…</string>
+    <string name="status_building">Building native library…</string>
+    <string name="status_injecting">Injecting overlay…</string>
+    <string name="status_running">Overlay is running</string>
+    <string name="status_game_not_found">Game not found</string>
+    <string name="status_failed">Injection failed</string>
+    <string name="btn_start">START</string>
+    <string name="btn_stop">STOP</string>
+    <string name="btn_launch_game">Launch Standoff 2</string>
+    <string name="root_required">Root access required</string>
+    <string name="root_denied">Root access denied. Please grant root permission.</string>
+    <string name="game_package">com.axlebolt.standoff2</string>
+    <string name="native_build_error">Failed to build native overlay</string>
+    <string name="injection_error">Failed to inject overlay</string>
+    <string name="info_text">This injector will build and launch an external ESP overlay for Standoff 2.\n\nRequirements:\n• Root access\n• Standoff 2 installed\n• Storage permissions</string>
+</resources>
