@@ -1,7 +1,6 @@
 package com.standoff2.injector
 
 import android.Manifest
-import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -9,62 +8,35 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
-import android.view.View
+import android.util.Log
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import android.widget.ProgressBar
-import android.widget.TextView
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var startButton: MaterialButton
-    private lateinit var launchGameButton: MaterialButton
-    private lateinit var statusTextView: TextView
-    private lateinit var progressBar: ProgressBar
-    
-    private var isInjected = false
     private val rootChecker = RootChecker()
     private val nativeBuilder = NativeBuilder()
+    private var hasStarted = false
 
     companion object {
+        private const val TAG = "MainActivity"
         private const val REQUEST_STORAGE_PERMISSION = 100
         private const val REQUEST_OVERLAY_PERMISSION = 101
-        private const val GAME_PACKAGE = "com.axlebolt.standoff2"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-        initViews()
+        
+        Log.d(TAG, "MainActivity started - checking permissions")
         checkPermissions()
-    }
-
-    private fun initViews() {
-        startButton = findViewById(R.id.startButton)
-        launchGameButton = findViewById(R.id.launchGameButton)
-        statusTextView = findViewById(R.id.statusTextView)
-        progressBar = findViewById(R.id.progressBar)
-
-        startButton.setOnClickListener {
-            if (isInjected) {
-                stopInjection()
-            } else {
-                startInjection()
-            }
-        }
-
-        launchGameButton.setOnClickListener {
-            launchGame()
-        }
     }
 
     private fun checkPermissions() {
@@ -94,7 +66,7 @@ class MainActivity : AppCompatActivity() {
         if (permissions.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, permissions.toTypedArray(), REQUEST_STORAGE_PERMISSION)
         } else {
-            checkRoot()
+            checkRootAndStartOverlay()
         }
     }
 
@@ -125,9 +97,10 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_STORAGE_PERMISSION) {
             if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                checkRoot()
+                checkRootAndStartOverlay()
             } else {
-                showError("Storage permissions required")
+                showToast("Storage permissions required")
+                finish()
             }
         }
     }
@@ -138,24 +111,28 @@ class MainActivity : AppCompatActivity() {
             if (Settings.canDrawOverlays(this)) {
                 checkPermissions()
             } else {
-                showError("Overlay permission required")
+                showToast("Overlay permission required")
+                finish()
             }
         }
     }
 
-    private fun checkRoot() {
+    private fun checkRootAndStartOverlay() {
+        if (hasStarted) return
+        hasStarted = true
+        
         lifecycleScope.launch {
-            updateStatus(getString(R.string.status_checking), true)
+            Log.d(TAG, "Checking root access...")
             
             val hasRoot = withContext(Dispatchers.IO) {
                 rootChecker.isRooted()
             }
 
             if (hasRoot) {
-                updateStatus(getString(R.string.status_idle), false)
-                startButton.isEnabled = true
+                Log.d(TAG, "Root access granted")
+                startInjection()
             } else {
-                updateStatus(getString(R.string.root_required), false)
+                Log.e(TAG, "Root access denied")
                 showRootDialog()
             }
         }
@@ -163,8 +140,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showRootDialog() {
         AlertDialog.Builder(this)
-            .setTitle(R.string.root_required)
-            .setMessage(R.string.root_denied)
+            .setTitle("Root Required")
+            .setMessage("Root access is required to run the overlay. Please grant root permission.")
             .setPositiveButton("OK") { dialog, _ ->
                 dialog.dismiss()
                 finish()
@@ -176,84 +153,75 @@ class MainActivity : AppCompatActivity() {
     private fun startInjection() {
         lifecycleScope.launch {
             try {
-                startButton.isEnabled = false
-                launchGameButton.isEnabled = false
-
-                updateStatus(getString(R.string.status_building), true)
+                Log.d(TAG, "Building native overlay...")
+                showToast("Building overlay...")
                 
                 val buildSuccess = withContext(Dispatchers.IO) {
                     nativeBuilder.buildNative(this@MainActivity)
                 }
 
                 if (!buildSuccess) {
-                    throw Exception(getString(R.string.native_build_error))
+                    throw Exception("Failed to build native overlay")
                 }
 
-                updateStatus(getString(R.string.status_injecting), true)
+                Log.d(TAG, "Starting overlay process...")
+                showToast("Starting overlay...")
 
                 val injectionSuccess = withContext(Dispatchers.IO) {
                     InjectorService.startOverlay(this@MainActivity)
                 }
 
                 if (injectionSuccess) {
-                    isInjected = true
-                    updateStatus(getString(R.string.status_running), false)
-                    startButton.text = getString(R.string.btn_stop)
-                    startButton.isEnabled = true
-                    launchGameButton.isEnabled = true
+                    Log.d(TAG, "Overlay started successfully")
+                    showToast("Overlay running - launching game...")
                     
-                    Snackbar.make(
-                        findViewById(android.R.id.content),
-                        "Overlay started successfully!",
-                        Snackbar.LENGTH_LONG
-                    ).show()
+                    // Launch Standoff 2
+                    launchGame()
+                    
+                    // Close MainActivity after a short delay
+                    kotlinx.coroutines.delay(2000)
+                    finish()
                 } else {
-                    throw Exception(getString(R.string.injection_error))
+                    throw Exception("Failed to inject overlay")
                 }
 
             } catch (e: Exception) {
-                updateStatus(getString(R.string.status_failed), false)
-                showError(e.message ?: "Unknown error")
-                startButton.isEnabled = true
-                launchGameButton.isEnabled = true
+                Log.e(TAG, "Injection failed: ${e.message}", e)
+                showToast("Error: ${e.message}")
+                finish()
             }
-        }
-    }
-
-    private fun stopInjection() {
-        lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
-                InjectorService.stopOverlay(this@MainActivity)
-            }
-            isInjected = false
-            updateStatus(getString(R.string.status_idle), false)
-            startButton.text = getString(R.string.btn_start)
         }
     }
 
     private fun launchGame() {
         try {
-            val intent = packageManager.getLaunchIntentForPackage(GAME_PACKAGE)
+            val gamePackage = "com.axlebolt.standoff2"
+            val intent = packageManager.getLaunchIntentForPackage(gamePackage)
             if (intent != null) {
                 startActivity(intent)
+                Log.d(TAG, "Launching Standoff 2")
             } else {
-                showError("Standoff 2 not installed")
+                Log.w(TAG, "Standoff 2 not installed")
+                showToast("Standoff 2 not installed")
             }
         } catch (e: Exception) {
-            showError("Failed to launch game: ${e.message}")
+            Log.e(TAG, "Failed to launch game: ${e.message}")
         }
     }
 
-    private fun updateStatus(status: String, showProgress: Boolean) {
-        statusTextView.text = status
-        progressBar.visibility = if (showProgress) View.VISIBLE else View.GONE
+    private fun showToast(message: String) {
+        runOnUiThread {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        }
     }
 
-    private fun showError(message: String) {
-        Snackbar.make(
-            findViewById(android.R.id.content),
-            message,
-            Snackbar.LENGTH_LONG
-        ).show()
+    override fun onResume() {
+        super.onResume()
+        // Re-check permissions when returning to activity
+        if (!hasStarted && Settings.canDrawOverlays(this) && 
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager() ||
+             Build.VERSION.SDK_INT < Build.VERSION_CODES.R)) {
+            checkRootAndStartOverlay()
+        }
     }
 }
